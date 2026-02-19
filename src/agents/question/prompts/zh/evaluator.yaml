@@ -21,9 +21,10 @@ evaluate_ideas: |
   - 创意之间的多样性
   - 与用户偏好的一致性
   - 可执行性与清晰度
+  - question_type 合法性：必须为 "choice"、"written"、"coding" 之一，其他类型（如 visual、diagram、matching）均为非法
 
-  若质量/多样性不足且仍有轮次，请设置 continue_loop=true，
-  并给出可执行的下一轮反馈。
+  若存在非法 question_type，或质量/多样性不足且仍有轮次，
+  请设置 continue_loop=true，并在 feedback 中明确指出哪些创意的类型非法、应改为何种类型。
   否则设置 continue_loop=false，并输出 top-k 创意。
 
   仅返回 JSON：

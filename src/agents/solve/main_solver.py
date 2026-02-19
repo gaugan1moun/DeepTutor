@@ -230,10 +230,6 @@ class MainSolver:
         output_dir = os.path.join(output_base, f"solve_{timestamp}")
         os.makedirs(output_dir, exist_ok=True)
 
-        # Artifacts directory for code execution outputs
-        artifacts_dir = os.path.join(output_dir, "artifacts")
-        os.makedirs(artifacts_dir, exist_ok=True)
-
         # Task-level log file
         task_log = os.path.join(output_dir, "task.log")
         self.logger.add_task_log_handler(task_log)
@@ -243,7 +239,7 @@ class MainSolver:
         self.logger.info(f"Output: {output_dir}")
 
         try:
-            result = await self._run_pipeline(question, output_dir, artifacts_dir)
+            result = await self._run_pipeline(question, output_dir)
             result["metadata"] = {
                 **result.get("metadata", {}),
                 "mode": "plan_react_write",
@@ -281,7 +277,6 @@ class MainSolver:
         self,
         question: str,
         output_dir: str,
-        artifacts_dir: str,
     ) -> dict[str, Any]:
         solve_cfg = self.config.get("solve", {})
         max_react = solve_cfg.get("max_react_iterations", 5)
@@ -302,6 +297,7 @@ class MainSolver:
             question=question,
             scratchpad=scratchpad,
             kb_name=self.kb_name,
+            memory_context=await self._get_planner_memory_context(question),
         )
         scratchpad.set_plan(plan)
         scratchpad.save(output_dir)
@@ -338,6 +334,7 @@ class MainSolver:
 
             scratchpad.mark_step_status(step.id, "in_progress")
             self.logger.info(f"  Step {step.id}: {step.goal}")
+            step_memory_context = await self._get_solver_memory_context(step.goal)
 
             # Compute step index for progress reporting
             step_index = next(
@@ -356,6 +353,7 @@ class MainSolver:
                     question=question,
                     current_step=step,
                     scratchpad=scratchpad,
+                    memory_context=step_memory_context,
                 )
 
                 action = decision["action"]
@@ -402,6 +400,7 @@ class MainSolver:
                             scratchpad=scratchpad,
                             kb_name=self.kb_name,
                             replan=True,
+                            memory_context=await self._get_planner_memory_context(question),
                         )
                         scratchpad.update_plan(new_plan)
                         scratchpad.save(output_dir)
@@ -419,7 +418,6 @@ class MainSolver:
                     action=action,
                     action_input=action_input,
                     output_dir=output_dir,
-                    artifacts_dir=artifacts_dir,
                 )
 
                 scratchpad.add_entry(
@@ -521,7 +519,6 @@ class MainSolver:
         action: str,
         action_input: str,
         output_dir: str,
-        artifacts_dir: str,
     ) -> tuple[str, list[Source]]:
         """Execute a tool and return (observation_text, sources)."""
         obs_max = self.config.get("solve", {}).get("observation_max_tokens", 2000)
@@ -533,7 +530,7 @@ class MainSolver:
             elif action == "web_search":
                 observation, sources = await self._tool_web(action_input, output_dir, obs_max)
             elif action == "code_execute":
-                observation, sources = await self._tool_code(action_input, artifacts_dir, obs_max)
+                observation, sources = await self._tool_code(action_input, obs_max)
             else:
                 observation = f"Unknown action: {action}"
         except Exception as exc:
@@ -578,20 +575,19 @@ class MainSolver:
         return observation, sources
 
     async def _tool_code(
-        self, intent: str, artifacts_dir: str, max_chars: int
+        self, intent: str, max_chars: int
     ) -> tuple[str, list[Source]]:
         """Generate Python code from intent, then execute it."""
         # Step 1: Generate code from the intent description
         code = await self._generate_code(intent)
 
-        # Step 2: Execute
+        # Step 2: Execute (all outputs go to run_code_workspace automatically)
         from src.tools.code_executor import run_code
 
         result = await run_code(
             language="python",
             code=code,
             timeout=30,
-            assets_dir=artifacts_dir,
         )
 
         parts: list[str] = []
@@ -642,10 +638,35 @@ class MainSolver:
 
     def _get_user_preference(self) -> str:
         """Get personalisation preference (optional)."""
+        from src.personalization.memory_reader import get_memory_reader_instance
+
+        reader = get_memory_reader_instance()
+        if reader:
+            try:
+                return reader.get_writer_context()
+            except Exception:
+                pass
+        return ""
+
+    async def _get_planner_memory_context(self, question: str) -> str:
+        from src.personalization.memory_reader import get_memory_reader_instance
+
+        reader = get_memory_reader_instance()
+        if not reader:
+            return ""
         try:
-            from src.personalization.service import get_personalization_service
-            service = get_personalization_service()
-            return service.get_preference_for_prompt()
+            return await reader.get_planner_context(question)
+        except Exception:
+            return ""
+
+    async def _get_solver_memory_context(self, step_goal: str) -> str:
+        from src.personalization.memory_reader import get_memory_reader_instance
+
+        reader = get_memory_reader_instance()
+        if not reader:
+            return ""
+        try:
+            return await reader.get_solver_context(step_goal)
         except Exception:
             return ""
 
@@ -674,6 +695,7 @@ class MainSolver:
                     "total_steps": len(scratchpad.plan.steps) if scratchpad.plan else 0,
                     "completed_steps": len(scratchpad.get_completed_steps()),
                     "citations_count": len(scratchpad.get_all_sources()),
+                    "output_dir": output_dir,
                 },
             )
             await get_event_bus().publish(event)

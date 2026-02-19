@@ -17,6 +17,9 @@ validate: |
   - Is the difficulty appropriate?
   - Is the answer correct and consistent with explanation?
   - For choice questions, exactly one option should be correct.
+  - For choice questions, check that options are balanced in length and style.
+    Reject if the correct answer is noticeably longer/more detailed than distractors,
+    or if options lack meaningful differentiation (too similar or too obviously wrong).
   - Is the output clear and complete?
 
   Also decide whether code verification is needed:

@@ -12,6 +12,8 @@ from typing import Any
 from src.agents.base_agent import BaseAgent
 from src.agents.question.models import QuestionTemplate
 
+VALID_QUESTION_TYPES = {"choice", "written", "coding"}
+
 
 class Evaluator(BaseAgent):
     """
@@ -77,6 +79,19 @@ class Evaluator(BaseAgent):
         )
 
         continue_loop = bool(parsed.get("continue_loop", False))
+        feedback = str(parsed.get("feedback", "")).strip()
+
+        invalid_types = self._find_invalid_question_types(ideas)
+        if invalid_types and current_round < max_rounds:
+            continue_loop = True
+            fixes = ", ".join(f'{k} (was "{v}")' for k, v in invalid_types)
+            type_feedback = (
+                "Invalid question_type detected — only 'choice', 'written', 'coding' are allowed. "
+                f"Please fix: {fixes}."
+            )
+            feedback = f"{type_feedback} {feedback}".strip()
+            self.logger.warning(f"Evaluator flagged invalid question types: {invalid_types}")
+
         if current_round >= max_rounds:
             continue_loop = False
 
@@ -84,14 +99,13 @@ class Evaluator(BaseAgent):
         if not isinstance(selected_ideas, list):
             selected_ideas = []
 
-        # Ensure selected ideas exist
         if not selected_ideas:
             selected_ideas = self._fallback_select(ideas=ideas, top_k=top_k)
 
         templates = self._ideas_to_templates(selected_ideas, top_k=top_k)
         return {
             "continue_loop": continue_loop,
-            "feedback": str(parsed.get("feedback", "")).strip(),
+            "feedback": feedback,
             "templates": templates,
             "selected_ideas": selected_ideas[:top_k],
             "scores": parsed.get("scores", []),
@@ -124,6 +138,18 @@ class Evaluator(BaseAgent):
             "scores": [],
         }
 
+    @staticmethod
+    def _find_invalid_question_types(ideas: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        """Return list of (idea_id, bad_type) for ideas with illegal question_type."""
+        bad: list[tuple[str, str]] = []
+        for idea in ideas:
+            if not isinstance(idea, dict):
+                continue
+            qt = str(idea.get("question_type", "")).strip().lower()
+            if qt and qt not in VALID_QUESTION_TYPES:
+                bad.append((idea.get("idea_id", "unknown"), qt))
+        return bad
+
     def _fallback_select(self, ideas: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
         valid = [idea for idea in ideas if isinstance(idea, dict) and idea.get("concentration")]
         return valid[:top_k]
@@ -140,11 +166,13 @@ class Evaluator(BaseAgent):
             concentration = str(item.get("concentration", "")).strip()
             if not concentration:
                 continue
+            raw_type = str(item.get("question_type", "written")).strip().lower()
+            question_type = raw_type if raw_type in VALID_QUESTION_TYPES else "written"
             templates.append(
                 QuestionTemplate(
                     question_id=f"q_{idx}",
                     concentration=concentration,
-                    question_type=str(item.get("question_type", "written")).strip() or "written",
+                    question_type=question_type,
                     difficulty=str(item.get("difficulty", "medium")).strip() or "medium",
                     source="custom",
                     metadata={

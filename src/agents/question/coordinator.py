@@ -301,6 +301,10 @@ class AgentCoordinator:
 
         idea_agent = self._create_idea_agent()
         evaluator = self._create_evaluator()
+        idea_memory_context = await self._get_idea_memory_context(user_topic)
+        evaluator_memory_context = await self._get_evaluator_memory_context(user_topic)
+        idea_preference = self._merge_preference(preference, idea_memory_context)
+        evaluator_preference = self._merge_preference(idea_preference, evaluator_memory_context)
 
         feedback = ""
         trace_rounds: list[dict[str, Any]] = []
@@ -331,7 +335,7 @@ class AgentCoordinator:
 
             idea_result = await idea_agent.process(
                 user_topic=user_topic,
-                preference=preference,
+                preference=idea_preference,
                 evaluator_feedback=feedback,
                 num_ideas=ideas_per_round,
                 target_difficulty=target_difficulty,
@@ -341,7 +345,7 @@ class AgentCoordinator:
 
             eval_result = await evaluator.process(
                 user_topic=user_topic,
-                preference=preference,
+                preference=evaluator_preference,
                 ideas=ideas,
                 top_k=num_questions,
                 current_round=round_idx,
@@ -443,10 +447,18 @@ class AgentCoordinator:
                 )
 
                 try:
+                    template_preference = preference
+                    generator_memory_context = await self._get_generator_memory_context(
+                        template.concentration
+                    )
+                    template_preference = self._merge_preference(
+                        template_preference,
+                        generator_memory_context,
+                    )
                     qa_pair = await generator.process(
                         template=template,
                         user_topic=user_topic,
-                        preference=preference,
+                        preference=template_preference,
                         validator_feedback=feedback,
                     )
                     validation = await validator.process(
@@ -737,8 +749,56 @@ class AgentCoordinator:
                 agent_output=json.dumps(question_summaries, ensure_ascii=False),
                 tools_used=list(tools_used),
                 success=any(item.get("success") for item in qa_pairs),
-                metadata={"mode": mode, "num_questions": len(qa_pairs)},
+                metadata={
+                    "mode": mode,
+                    "num_questions": len(qa_pairs),
+                    "batch_dir": str(self._batch_dir) if self._batch_dir else "",
+                    "user_topic": user_topic,
+                },
             )
             await get_event_bus().publish(event)
         except Exception as exc:
             self.logger.debug(f"Failed to publish QUESTION_COMPLETE event: {exc}")
+
+    async def _get_idea_memory_context(self, topic: str) -> str:
+        from src.personalization.memory_reader import get_memory_reader_instance
+
+        reader = get_memory_reader_instance()
+        if not reader:
+            return ""
+        try:
+            return await reader.get_idea_context(topic)
+        except Exception:
+            return ""
+
+    async def _get_evaluator_memory_context(self, topic: str) -> str:
+        from src.personalization.memory_reader import get_memory_reader_instance
+
+        reader = get_memory_reader_instance()
+        if not reader:
+            return ""
+        try:
+            return await reader.get_evaluator_context(topic)
+        except Exception:
+            return ""
+
+    async def _get_generator_memory_context(self, concentration: str) -> str:
+        from src.personalization.memory_reader import get_memory_reader_instance
+
+        reader = get_memory_reader_instance()
+        if not reader:
+            return ""
+        try:
+            return await reader.get_generator_context(concentration)
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _merge_preference(user_pref: str, memory_context: str) -> str:
+        pref = (user_pref or "").strip()
+        mem = (memory_context or "").strip()
+        if pref and mem:
+            return f"{pref}\n\n[Memory Context]\n{mem}"
+        if mem:
+            return f"[Memory Context]\n{mem}"
+        return pref

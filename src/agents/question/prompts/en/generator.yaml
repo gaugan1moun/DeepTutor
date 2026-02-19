@@ -55,6 +55,9 @@ generate: |
   - Keep strict alignment with template.concentration and template.difficulty.
   - Respect template.question_type.
   - If question_type is choice, provide 4 options and one correct answer.
+  - For choice questions, ensure options are well-differentiated and balanced in length.
+    Do NOT make the correct answer noticeably longer or more detailed than distractors.
+    All options should be plausible and similar in style/length to avoid test-taking shortcuts.
   - Provide a clear explanation.
   - Only include `verification_code` (python) if it is genuinely useful to verify
     the correctness of your answer (e.g., for coding or math questions).

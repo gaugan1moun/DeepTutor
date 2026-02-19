@@ -139,6 +139,7 @@ class WriterAgent(BaseAgent):
                     sources=sources_text,
                     language=language,
                     iteration=i + 1,
+                    preference=preference,
                 )
             elif i == 1:
                 # Second step was already bundled in iteration 0; skip
@@ -152,6 +153,7 @@ class WriterAgent(BaseAgent):
                     sources=sources_text,
                     language=language,
                     iteration=i,
+                    preference=preference,
                 )
 
         # --- Concise answer generation ---
@@ -159,6 +161,7 @@ class WriterAgent(BaseAgent):
             question=question,
             detailed_answer=draft,
             language=language,
+            preference=preference,
         )
 
         # --- Assemble final output ---
@@ -177,6 +180,7 @@ class WriterAgent(BaseAgent):
         sources: str,
         language: str,
         iteration: int,
+        preference: str = "",
     ) -> str:
         """Run one iteration of the incremental draft builder."""
         system_prompt = self._get_iterative_system_prompt()
@@ -188,6 +192,7 @@ class WriterAgent(BaseAgent):
                 previous_draft=previous_draft,
                 new_evidence=new_evidence,
                 sources=sources or "(no external sources)",
+                preference=preference or "(no specific preference)",
                 language=language,
             )
         else:
@@ -196,6 +201,7 @@ class WriterAgent(BaseAgent):
                 f"## Previous Draft\n{previous_draft}\n\n"
                 f"## New Evidence\n{new_evidence}\n\n"
                 f"## Available Sources\n{sources or '(none)'}\n\n"
+                f"## User Preference\n{preference or '(none)'}\n\n"
                 f"## Language\n{language}"
             )
 
@@ -212,6 +218,7 @@ class WriterAgent(BaseAgent):
         question: str,
         detailed_answer: str,
         language: str,
+        preference: str = "",
     ) -> str:
         """Generate a concise answer from the completed detailed draft."""
         system_prompt = self._get_concise_system_prompt()

@@ -32,13 +32,19 @@ generate_ideas: |
   Generate exactly {num_ideas} candidate question ideas.
   Focus on diversity, relevance, and alignment with user preference.
 
+  IMPORTANT — question_type must be exactly one of these three values:
+    - "choice"  (multiple-choice, 4 options, one correct)
+    - "written" (short-answer / essay)
+    - "coding"  (programming / computational)
+  Do NOT invent other types (e.g. visual, diagram, matching, etc.).
+
   Return only JSON in this format:
   {{
     "ideas": [
       {{
         "idea_id": "idea_1",
         "concentration": "what this question should focus on",
-        "question_type": "choice or written or coding",
+        "question_type": "choice | written | coding",
         "difficulty": "easy or medium or hard",
         "rationale": "why this idea is valuable"
       }}

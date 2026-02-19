@@ -49,6 +49,7 @@ class SolverAgent(BaseAgent):
         question: str,
         current_step: PlanStep,
         scratchpad: Scratchpad,
+        memory_context: str = "",
     ) -> dict[str, str]:
         """Run one ReAct iteration for the given plan step.
 
@@ -56,7 +57,12 @@ class SolverAgent(BaseAgent):
             dict with keys: thought, action, action_input, self_note
         """
         system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(question, current_step, scratchpad)
+        user_prompt = self._build_user_prompt(
+            question=question,
+            current_step=current_step,
+            scratchpad=scratchpad,
+            memory_context=memory_context,
+        )
 
         response = await self.call_llm(
             user_prompt=user_prompt,
@@ -94,6 +100,7 @@ class SolverAgent(BaseAgent):
         question: str,
         current_step: PlanStep,
         scratchpad: Scratchpad,
+        memory_context: str = "",
     ) -> str:
         template = self.get_prompt("user_template") if self.has_prompts() else None
 
@@ -108,6 +115,7 @@ class SolverAgent(BaseAgent):
                 current_step=current_step_text,
                 step_history=ctx["step_history"],
                 previous_knowledge=ctx["previous_knowledge"],
+                memory_context=memory_context or "(no historical memory)",
             )
 
         # Fallback
@@ -116,7 +124,8 @@ class SolverAgent(BaseAgent):
             f"## Plan\n{ctx['plan']}\n\n"
             f"## Current Step\n{current_step_text}\n\n"
             f"## Previous Actions for This Step\n{ctx['step_history']}\n\n"
-            f"## Knowledge from Previous Steps\n{ctx['previous_knowledge']}"
+            f"## Knowledge from Previous Steps\n{ctx['previous_knowledge']}\n\n"
+            f"## Historical Knowledge\n{memory_context or '(none)'}"
         )
 
     # ------------------------------------------------------------------

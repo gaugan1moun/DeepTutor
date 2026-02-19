@@ -13,6 +13,7 @@ system: |
   3. Do NOT specify which tools to use. The solving agent will independently decide the best approach for each step.
   4. Step IDs must follow the pattern S1, S2, S3, …
   5. If this is a **replan** request (progress is shown below), preserve all completed steps unchanged and only revise or add pending steps.
+  6. If memory context is provided, use it as historical reference, but do not copy old plans directly.
 
   # Output Format
   Output **strict JSON** with no extra text:
@@ -35,3 +36,6 @@ user_template: |
 
   ## Progress So Far
   {scratchpad_summary}
+
+  ## Memory Context
+  {memory_context}

@@ -49,6 +49,7 @@ class PlannerAgent(BaseAgent):
         scratchpad: Scratchpad,
         kb_name: str = "",
         replan: bool = False,
+        memory_context: str = "",
     ) -> Plan:
         """Generate or revise the solving plan.
 
@@ -62,7 +63,13 @@ class PlannerAgent(BaseAgent):
             A Plan object with ordered steps.
         """
         system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(question, scratchpad, kb_name, replan)
+        user_prompt = self._build_user_prompt(
+            question=question,
+            scratchpad=scratchpad,
+            kb_name=kb_name,
+            replan=replan,
+            memory_context=memory_context,
+        )
 
         response = await self.call_llm(
             user_prompt=user_prompt,
@@ -97,6 +104,7 @@ class PlannerAgent(BaseAgent):
         scratchpad: Scratchpad,
         kb_name: str,
         replan: bool,
+        memory_context: str = "",
     ) -> str:
         template = self.get_prompt("user_template") if self.has_prompts() else None
 
@@ -130,13 +138,15 @@ class PlannerAgent(BaseAgent):
                 question=question,
                 tools_description=tools_desc,
                 scratchpad_summary=scratchpad_summary,
+                memory_context=memory_context or "(no historical memory)",
             )
 
         # Fallback
         return (
             f"## Question\n{question}\n\n"
             f"## Available Tools\n{tools_desc}\n\n"
-            f"## Progress So Far\n{scratchpad_summary}"
+            f"## Progress So Far\n{scratchpad_summary}\n\n"
+            f"## Memory Context\n{memory_context or '(none)'}"
         )
 
     # ------------------------------------------------------------------

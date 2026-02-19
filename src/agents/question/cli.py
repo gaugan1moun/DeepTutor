@@ -11,6 +11,8 @@ Features:
 - Saves all intermediate files (templates, traces, per-question results)
   to a per-batch directory under the output folder
 - Detailed summary with question previews at the end
+- Interactive answering mode after question generation
+- Integrated with PersonalizationService for memory recording
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from dotenv import load_dotenv
+
+load_dotenv(PROJECT_ROOT / "DeepTutor.env", override=False)
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 from src.agents.question import AgentCoordinator
 from src.knowledge.config import KNOWLEDGE_BASES_DIR
@@ -182,6 +189,44 @@ async def _cli_progress(data: dict[str, Any]) -> None:
         print(f"    {icon} {BOLD}{qid}{RESET} ({attempts} 次尝试)")
 
 
+# ── PersonalizationService startup ────────────────────────────────────
+
+async def _ensure_personalization() -> bool:
+    """Start EventBus and PersonalizationService for in-process memory.
+
+    Returns True if both services started successfully.
+    """
+    ok = True
+    try:
+        from src.core.event_bus import get_event_bus
+
+        bus = get_event_bus()
+        await bus.start()
+    except Exception as exc:
+        print(f"\n  {RED}WARNING: EventBus failed to start: {exc}{RESET}")
+        ok = False
+    try:
+        from src.personalization.service import get_personalization_service
+
+        svc = get_personalization_service()
+        await svc.start()
+    except Exception as exc:
+        print(f"\n  {RED}WARNING: PersonalizationService failed to start: {exc}{RESET}")
+        ok = False
+    return ok
+
+
+async def _flush_events() -> None:
+    """Wait for EventBus to finish processing all pending events."""
+    try:
+        from src.core.event_bus import get_event_bus
+
+        bus = get_event_bus()
+        await bus.flush(timeout=60.0)
+    except Exception:
+        pass
+
+
 # ── Result display ────────────────────────────────────────────────────
 
 def _print_summary(summary: dict[str, Any]) -> None:
@@ -227,6 +272,150 @@ def _print_summary(summary: dict[str, Any]) -> None:
     print()
 
 
+# ── Interactive answering ─────────────────────────────────────────────
+
+def _display_question(idx: int, qa: dict[str, Any]) -> None:
+    """Display a single question for the user to answer."""
+    q_type = qa.get("question_type", "written")
+    question_text = qa.get("question", "")
+    options = qa.get("options") or {}
+
+    print(f"\n  {BOLD}题目 {idx}{RESET}  [{q_type}]")
+    print(_hr())
+    print(f"  {question_text}")
+
+    if options:
+        print()
+        for key in sorted(options.keys()):
+            print(f"    {CYAN}{key}{RESET}. {options[key]}")
+    print(_hr())
+
+
+def _judge_answer(user_answer: str, correct_answer: str, q_type: str) -> str:
+    """Simple answer judgement. Returns 'correct', 'wrong', or 'partial'."""
+    ua = user_answer.strip().lower()
+    ca = correct_answer.strip().lower()
+    if not ua:
+        return "skipped"
+    if q_type == "choice":
+        ua_letter = ua.strip("().）（ ").upper()
+        ca_letter = ca.strip("().）（ ").upper()
+        if ua_letter and ca_letter:
+            return "correct" if ua_letter == ca_letter else "wrong"
+    if ua == ca:
+        return "correct"
+    if ua in ca or ca in ua:
+        return "partial"
+    return "pending"
+
+
+async def _run_answer_session(summary: dict[str, Any]) -> None:
+    """Interactive answering session after question generation."""
+    results = summary.get("results", []) or []
+    approved_results = [r for r in results if r.get("success")]
+    if not approved_results:
+        print(f"  {YELLOW}没有可用的题目进行作答。{RESET}")
+        return
+
+    batch_dir = summary.get("batch_dir", "")
+    trace_id = Path(batch_dir).name if batch_dir else ""
+
+    _header(f"答题环节 ({len(approved_results)} 道题)")
+    print(f"  {DIM}直接回车可跳过该题，输入 /quit 退出答题{RESET}\n")
+
+    answers_recorded = 0
+    correct_count = 0
+    wrong_count = 0
+    skipped_count = 0
+
+    for i, item in enumerate(approved_results, 1):
+        qa = item.get("qa_pair", {})
+        question_id = qa.get("question_id", f"q_{i}")
+        q_type = qa.get("question_type", "written")
+        correct_answer = str(qa.get("correct_answer", ""))
+
+        _display_question(i, qa)
+
+        try:
+            user_input = input(f"  {ARROW} 你的回答: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n  {YELLOW}答题中断。{RESET}")
+            break
+
+        if user_input.lower() in ("/quit", "/exit", "/q"):
+            print(f"  {DIM}退出答题。{RESET}")
+            break
+
+        if not user_input:
+            skipped_count += 1
+            print(f"  {DIM}(已跳过){RESET}")
+            continue
+
+        judged = _judge_answer(user_input, correct_answer, q_type)
+
+        if judged == "correct":
+            print(f"  {CHECK} {GREEN}正确！{RESET}")
+            correct_count += 1
+        elif judged == "wrong":
+            print(f"  {CROSS} {RED}错误{RESET}  正确答案: {GREEN}{correct_answer}{RESET}")
+            wrong_count += 1
+        elif judged == "partial":
+            print(f"  {YELLOW}~ 部分匹配{RESET}  参考答案: {correct_answer}")
+        elif judged == "skipped":
+            skipped_count += 1
+            print(f"  {DIM}(已跳过){RESET}")
+            continue
+        else:
+            print(f"  {YELLOW}? 待判定{RESET}  参考答案: {correct_answer}")
+
+        explanation = qa.get("explanation", "")
+        if explanation:
+            short_exp = explanation[:200]
+            if len(explanation) > 200:
+                short_exp += "..."
+            print(f"  {DIM}解析: {short_exp}{RESET}")
+
+        # Record to PersonalizationService
+        if trace_id:
+            try:
+                from src.personalization.service import get_personalization_service
+
+                svc = get_personalization_service()
+                ok = await svc.record_user_answer(
+                    trace_id=trace_id,
+                    question_id=question_id,
+                    user_answer=user_input,
+                    judged_result=judged,
+                )
+                if ok:
+                    answers_recorded += 1
+            except Exception:
+                pass
+
+    # Flush trace + run memory agents once with the complete trace
+    if answers_recorded > 0 and trace_id:
+        print(f"\n  {DIM}同步答题记忆...{RESET}", end="", flush=True)
+        await _flush_events()
+        try:
+            from src.personalization.service import get_personalization_service
+            svc = get_personalization_service()
+            await svc.flush_memory_agents(trace_id)
+        except Exception:
+            pass
+        print(f" {CHECK}")
+
+    # Print answer session summary
+    _header("答题结果")
+    total = correct_count + wrong_count + skipped_count
+    print(f"  总计:   {total} 题")
+    print(f"  正确:   {GREEN}{correct_count}{RESET}")
+    print(f"  错误:   {RED}{wrong_count}{RESET}")
+    print(f"  跳过:   {DIM}{skipped_count}{RESET}")
+    if answers_recorded > 0:
+        print(f"  {CHECK} 已记录 {answers_recorded} 条答题记录到记忆系统")
+    print()
+
+
 # ── Coordinator builder ───────────────────────────────────────────────
 
 def _build_coordinator(
@@ -265,7 +454,23 @@ async def _run_topic_mode(coordinator: AgentCoordinator) -> None:
         preference=preference,
         num_questions=num_questions,
     )
+
+    # Wait for memory system to process the generation event
+    print(f"  {DIM}同步记忆系统...{RESET}", end="", flush=True)
+    await _flush_events()
+    print(f" {CHECK}")
+
     _print_summary(summary)
+
+    # Offer interactive answering
+    approved = [r for r in (summary.get("results") or []) if r.get("success")]
+    if approved:
+        try:
+            choice = input(f"  {ARROW} 是否开始答题? (y/n) [{DIM}y{RESET}]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            choice = "n"
+        if choice != "n":
+            await _run_answer_session(summary)
 
 
 async def _run_mimic_mode(coordinator: AgentCoordinator) -> None:
@@ -291,7 +496,23 @@ async def _run_mimic_mode(coordinator: AgentCoordinator) -> None:
         max_questions=max_questions,
         paper_mode=mode,
     )
+
+    # Wait for memory system to process the generation event
+    print(f"  {DIM}同步记忆系统...{RESET}", end="", flush=True)
+    await _flush_events()
+    print(f" {CHECK}")
+
     _print_summary(summary)
+
+    # Offer interactive answering
+    approved = [r for r in (summary.get("results") or []) if r.get("success")]
+    if approved:
+        try:
+            choice = input(f"  {ARROW} 是否开始答题? (y/n) [{DIM}y{RESET}]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            choice = "n"
+        if choice != "n":
+            await _run_answer_session(summary)
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -300,6 +521,11 @@ async def main() -> None:
     print(f"\n{BOLD}{'=' * 70}{RESET}")
     print(f"  {BOLD}{CYAN}DeepTutor Question Module CLI{RESET}")
     print(f"{BOLD}{'=' * 70}{RESET}")
+
+    # Start PersonalizationService for memory recording
+    print(f"  {DIM}正在初始化记忆系统...{RESET}", end="", flush=True)
+    mem_ok = await _ensure_personalization()
+    print(f" {CHECK}" if mem_ok else f" {CROSS}")
 
     kb_name = _select_kb()
     language = _prompt_non_empty("语言 [en/zh]", "zh").lower()
@@ -339,6 +565,16 @@ async def main() -> None:
             print(f"\n  {YELLOW}已中断当前任务。{RESET}")
         except Exception as exc:
             print(f"\n  {RED}运行失败: {exc}{RESET}")
+            import traceback
+            traceback.print_exc()
+
+    # Cleanup
+    try:
+        from src.core.event_bus import get_event_bus
+
+        await get_event_bus().stop()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

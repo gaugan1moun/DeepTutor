@@ -9,7 +9,7 @@ system: |
     - Block / display: `$$...$$`
     - **Do NOT** use `\(...\)` or `\[...\]` or bare symbols.
   - Cite sources inline using their IDs, e.g. `[rag-1]`, `[web-1]`.
-  - If code execution produced images, embed them: `![description](artifacts/<filename>)`.
+  - If code execution produced images that appear in the evidence as actual artifacts (with real file paths), embed them using the path from the evidence. **Never invent or guess image file names** — only reference artifacts that explicitly exist in the gathered evidence.
   - For code results, show only the key logic or result — not the full script.
   - Use tables where they improve clarity.
 
@@ -21,6 +21,7 @@ system: |
 
   # Important
   - Base your answer **only** on the provided evidence. Do not fabricate information.
+  - **Never reference images or files that do not appear in the evidence.** If no code execution artifact exists, do not embed any image.
   - If the evidence is insufficient, state what is missing rather than guessing.
   - Write in the language requested by the user (see the Language field).
 
@@ -55,13 +56,14 @@ iterative_system: |
   - All mathematical expressions **must** use LaTeX: inline `$...$`, block `$$...$$`.
   - **Do NOT** use `\(...\)` or `\[...\]`.
   - Cite sources inline using their IDs, e.g. `[rag-1]`, `[web-1]`.
-  - If code execution produced images, embed them: `![description](artifacts/<filename>)`.
+  - If code execution produced images that appear in the evidence as actual artifacts (with real file paths), embed them using the path from the evidence. **Never invent or guess image file names.**
   - Use tables where they improve clarity.
 
   # Guidelines
   - When a previous draft is provided, **expand and refine it** with the new evidence — do not discard prior content.
   - Reorganise sections if the new evidence changes the logical flow.
   - Base your answer **only** on the provided evidence and prior draft. Do not fabricate information.
+  - **Never reference images or files that do not appear in the evidence.** If no code execution artifact exists, do not embed any image.
   - Write in the language specified.
 
 iterative_user_template: |
@@ -76,6 +78,9 @@ iterative_user_template: |
 
   ## Available Sources
   {sources}
+
+  ## User Preference
+  {preference}
 
   ## Language
   Write in **{language}**.

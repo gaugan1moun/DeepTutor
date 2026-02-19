@@ -32,13 +32,19 @@ generate_ideas: |
   请生成恰好 {num_ideas} 个候选出题创意。
   重点关注：多样性、相关性、与用户偏好的一致性。
 
+  重要 — question_type 只允许以下三个值之一：
+    - "choice"  （选择题，4 选 1）
+    - "written" （简答 / 论述题）
+    - "coding"  （编程 / 计算题）
+  不要使用其他类型（如 visual、diagram、matching 等）。
+
   仅返回 JSON，格式如下：
   {{
     "ideas": [
       {{
         "idea_id": "idea_1",
         "concentration": "该题主要考察点",
-        "question_type": "choice 或 written 或 coding",
+        "question_type": "choice | written | coding",
         "difficulty": "easy 或 medium 或 hard",
         "rationale": "该创意的价值"
       }}

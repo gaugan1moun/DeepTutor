@@ -254,6 +254,15 @@ class Scratchpad:
             )
         step_history = "\n\n".join(step_history_parts) if step_history_parts else "(no actions yet)"
 
+        # Tool usage stats for the current step — helps the agent detect
+        # repeated calls to the same tool and consider switching strategy.
+        tool_actions = [e.action for e in current_entries if e.action not in ("done", "replan", "")]
+        if tool_actions:
+            from collections import Counter
+            counts = Counter(tool_actions)
+            stats = ", ".join(f"{tool} ×{n}" for tool, n in counts.most_common())
+            step_history += f"\n\n[Tool usage this step: {stats}]"
+
         # Previous knowledge from completed steps (compressed)
         previous_parts: list[str] = []
         if self.plan:

@@ -70,6 +70,9 @@ def setup_personalization_logging() -> logging.Logger:
         "src.personalization.service",
         "src.personalization.memory",
         "src.personalization.memory_agent",
+        "src.personalization.memory_reader",
+        "src.personalization.trace_forest",
+        "src.personalization.trace_tree",
         "src.personalization.event_queue",
     ]
     
@@ -134,8 +137,8 @@ class PersonalizationRunner:
         self._service = get_personalization_service()
         self._event_queue = get_event_queue()
         
-        # Start the service (initializes memory and agent)
-        await self._service.start()
+        # Start the service (quiet=False: keep console output in this dedicated terminal)
+        await self._service.start(quiet=False)
         
         self._logger.info("Personalization service started")
         self._logger.info(f"Polling event queue every {self.poll_interval}s")
@@ -174,6 +177,11 @@ class PersonalizationRunner:
                     f"(task_id={queued_event.task_id})"
                 )
                 
+                if queued_event.event_type == "FLUSH_MEMORY":
+                    await self._handle_flush_memory(queued_event)
+                    events_processed += 1
+                    continue
+
                 # Convert QueuedEvent to Event
                 event = Event(
                     type=EventType(queued_event.event_type),
@@ -203,6 +211,27 @@ class PersonalizationRunner:
         
         if events_processed > 0:
             self._logger.info(f"Batch completed: {events_processed} events processed")
+
+    async def _handle_flush_memory(self, queued_event) -> None:
+        """Handle a FLUSH_MEMORY request: reload trace from disk and run agents."""
+        trace_id = queued_event.metadata.get("trace_id") or queued_event.task_id
+        self._logger.info(f"FLUSH_MEMORY: loading trace {trace_id} and running agents")
+
+        forest = self._service._forest
+        if not forest:
+            self._logger.warning("FLUSH_MEMORY: no forest available")
+            return
+
+        tree = forest.reload_tree(trace_id)
+        if tree is None:
+            self._logger.warning(f"FLUSH_MEMORY: trace {trace_id} not found on disk")
+            return
+
+        self._logger.info(
+            f"FLUSH_MEMORY: trace loaded ({len(tree.nodes)} nodes), running memory agents"
+        )
+        await self._service._run_memory_agents(tree)
+        self._logger.info(f"FLUSH_MEMORY: agents completed for trace {trace_id}")
     
     async def stop(self) -> None:
         """Stop the personalization service."""

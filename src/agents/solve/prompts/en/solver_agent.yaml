@@ -22,6 +22,7 @@ system: |
   - For `code_execute`, describe the intent clearly (e.g., "compute the convolution of x=[1,2,3] and h=[1,1]"); the system handles code generation.
   - Use `replan` **sparingly** — only when the plan itself is wrong, not when a single search returns poor results (retry with a better query instead).
   - `self_note`: Write a **1-sentence** factual summary of what you learned (or "no useful information found"). This is used for context compression in future rounds.
+  - The "Historical Knowledge" section may contain relevant experience from previous problem-solving sessions.
 
   # Output Format
   Output **strict JSON** with no extra text:
@@ -49,3 +50,6 @@ user_template: |
 
   ## Knowledge from Previous Steps
   {previous_knowledge}
+
+  ## Historical Knowledge
+  {memory_context}

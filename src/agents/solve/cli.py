@@ -12,6 +12,10 @@ Usage:
     # Interactive mode (default when no question given)
     python -m src.agents.solve.cli
     python -m src.agents.solve.cli -i --language zh
+
+Features:
+    - Integrated with PersonalizationService for memory recording
+    - EventBus enabled for post-solve memory updates
 """
 
 from __future__ import annotations
@@ -25,6 +29,11 @@ from pathlib import Path
 _project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
+
+from dotenv import load_dotenv
+
+load_dotenv(_project_root / "DeepTutor.env", override=False)
+load_dotenv(_project_root / ".env", override=False)
 
 
 def _list_knowledge_bases() -> list[str]:
@@ -75,6 +84,42 @@ def _pick_kb(current_kb: str) -> str:
     return current_kb
 
 
+async def _ensure_personalization() -> bool:
+    """Start EventBus and PersonalizationService for in-process memory.
+
+    Returns True if both services started successfully.
+    """
+    ok = True
+    try:
+        from src.core.event_bus import get_event_bus
+
+        bus = get_event_bus()
+        await bus.start()
+    except Exception as exc:
+        print(f"\n  WARNING: EventBus failed to start: {exc}")
+        ok = False
+    try:
+        from src.personalization.service import get_personalization_service
+
+        svc = get_personalization_service()
+        await svc.start()
+    except Exception as exc:
+        print(f"\n  WARNING: PersonalizationService failed to start: {exc}")
+        ok = False
+    return ok
+
+
+async def _flush_events() -> None:
+    """Wait for EventBus to finish processing all pending events."""
+    try:
+        from src.core.event_bus import get_event_bus
+
+        bus = get_event_bus()
+        await bus.flush(timeout=60.0)
+    except Exception:
+        pass
+
+
 def _print_result(result: dict) -> None:
     print("\n" + "=" * 60)
     print("FINAL ANSWER")
@@ -99,6 +144,10 @@ async def run_interactive(kb_name: str, language: str, output_dir: str | None, d
     mode_label = "Detailed" if detailed else "Simple"
     print(f"  DeepTutor Solve Agent — Interactive Mode ({mode_label})")
     print("=" * 60)
+
+    print("  Initializing memory system...", end="", flush=True)
+    mem_ok = await _ensure_personalization()
+    print(" done" if mem_ok else " FAILED (see warnings above)")
 
     while True:
         # --- Step 1: pick knowledge base ---
@@ -125,7 +174,13 @@ async def run_interactive(kb_name: str, language: str, output_dir: str | None, d
             _print_result(result)
         except Exception as exc:
             print(f"\n  Error: {exc}\n")
+            import traceback
+            traceback.print_exc()
 
+        # Wait for memory system to process the solve event
+        print("  Syncing memory...", end="", flush=True)
+        await _flush_events()
+        print(" done")
         print()
 
 
@@ -138,22 +193,27 @@ async def main() -> None:
     parser.add_argument("--language", default="en", help="Output language: en / zh (default: en)")
     parser.add_argument("--output-dir", default=None, help="Override output base directory")
     parser.add_argument("-i", "--interactive", action="store_true", help="Start in interactive mode")
-    parser.add_argument("--detailed", action="store_true", help="Enable iterative detailed answer mode")
+    parser.add_argument("--detailed", action="store_true", default=None,
+                        help="Enable iterative detailed answer mode")
     args = parser.parse_args()
-
-    # Load environment variables
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
 
     if args.interactive or args.question is None:
         await run_interactive(args.kb, args.language, args.output_dir, args.detailed)
     else:
+        await _ensure_personalization()
         solver = await _make_solver(args.kb, args.language, args.output_dir)
         result = await solver.solve(args.question, detailed=args.detailed)
         _print_result(result)
+        print("  Syncing memory...", end="", flush=True)
+        await _flush_events()
+        print(" done")
+
+    # Cleanup
+    try:
+        from src.core.event_bus import get_event_bus
+        await get_event_bus().stop()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
