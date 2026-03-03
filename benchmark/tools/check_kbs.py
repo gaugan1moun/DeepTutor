@@ -255,19 +255,33 @@ def print_report(report: dict) -> str:
     return "error" if issues else ("warn" if warnings else "ok")
 
 
+def _ensure_env_loaded() -> None:
+    """Load .env files the same way rag_tool does."""
+    from dotenv import load_dotenv
+
+    load_dotenv(_PROJECT_ROOT / "DeepTutor.env", override=False)
+    load_dotenv(_PROJECT_ROOT / ".env", override=False)
+    load_dotenv(_PROJECT_ROOT.parent / ".env", override=False)
+
+
 async def _test_rag_query(kb_name: str, kb_base_dir: str, timeout: float = 60.0) -> tuple[bool, str]:
     """Run a simple RAG query against a KB to verify it's actually usable.
 
     Returns (success, message).
     """
-    from src.services.rag.service import RAGService
+    from src.tools.rag_tool import rag_search
 
-    service = RAGService(kb_base_dir=kb_base_dir)
     query = "What is the main topic of this document?"
     t0 = time.monotonic()
     try:
         result = await asyncio.wait_for(
-            service.search(query, kb_name, mode="naive", only_need_context=True),
+            rag_search(
+                query=query,
+                kb_name=kb_name,
+                mode="naive",
+                kb_base_dir=kb_base_dir,
+                only_need_context=True,
+            ),
             timeout=timeout,
         )
         elapsed = time.monotonic() - t0
@@ -373,6 +387,7 @@ async def main():
         _print_final_summary(groups, rag_results=None)
         sys.exit(1 if groups["error"] else 0)
 
+    _ensure_env_loaded()
     logging.disable(logging.CRITICAL)
 
     print(f"\n{'=' * 60}")
