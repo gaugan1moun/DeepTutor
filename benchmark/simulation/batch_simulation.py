@@ -423,8 +423,9 @@ def _extract_eval_summary(eval_result: dict) -> dict:
     return {
         "num_sessions": eval_result.get("num_sessions", 0),
         "turn_count": agg.get("turn_count", {}),
-        "gap_tracking": agg.get("gap_tracking", {}),
         "source_faithfulness": agg.get("source_faithfulness", {}),
+        "teaching_quality": agg.get("teaching_quality", {}),
+        "practice_questions": agg.get("practice_questions", {}),
     }
 
 
@@ -579,8 +580,11 @@ def _build_and_print_summary(
         total_profiles = 0
         total_sessions = 0
         faith_scores: list[float] = []
-        resolved_counts: list[int] = []
-        total_gaps_counts: list[int] = []
+        personalization_scores: list[float] = []
+        applicability_scores: list[float] = []
+        vividness_scores: list[float] = []
+        logical_depth_scores: list[float] = []
+        pq_scores: list[float] = []
         total_turns = 0
 
         for kb_res in all_kb_results:
@@ -596,36 +600,51 @@ def _build_and_print_summary(
                 tc = ev.get("turn_count", {})
                 total_turns += tc.get("paired_turns_total", 0)
 
-                gt = ev.get("gap_tracking", {})
-                for r in gt.get("resolved_gaps_per_session", []):
-                    resolved_counts.append(r)
-                for t in gt.get("total_gaps_per_session", []):
-                    total_gaps_counts.append(t)
-
                 sf = ev.get("source_faithfulness", {})
                 avg = sf.get("avg_score_overall")
                 if isinstance(avg, (int, float)):
                     faith_scores.append(float(avg))
+
+                tq = ev.get("teaching_quality", {})
+                for key, bucket in [
+                    ("avg_personalization_overall", personalization_scores),
+                    ("avg_applicability_overall", applicability_scores),
+                    ("avg_vividness_overall", vividness_scores),
+                    ("avg_logical_depth_overall", logical_depth_scores),
+                ]:
+                    v = tq.get(key)
+                    if isinstance(v, (int, float)):
+                        bucket.append(float(v))
+
+                pq = ev.get("practice_questions", {})
+                metric_vals = []
+                for key in [
+                    "avg_fitness",
+                    "avg_groundedness",
+                    "avg_diversity",
+                    "avg_answer_quality",
+                    "avg_cross_concept",
+                ]:
+                    v = pq.get(key)
+                    if isinstance(v, (int, float)):
+                        metric_vals.append(float(v))
+                if metric_vals:
+                    pq_scores.append(sum(metric_vals) / len(metric_vals))
 
         summary_by_backend[backend] = {
             "total_profiles": total_profiles,
             "total_sessions": total_sessions,
             "total_paired_turns": total_turns,
             "avg_faithfulness": (
-                round(sum(faith_scores) / len(faith_scores), 2)
+                round(sum(faith_scores) / len(faith_scores), 4)
                 if faith_scores
                 else None
             ),
-            "avg_resolved_gaps_per_session": (
-                round(sum(resolved_counts) / len(resolved_counts), 2)
-                if resolved_counts
-                else None
-            ),
-            "avg_total_gaps_per_session": (
-                round(sum(total_gaps_counts) / len(total_gaps_counts), 2)
-                if total_gaps_counts
-                else None
-            ),
+            "avg_personalization": round(sum(personalization_scores) / len(personalization_scores), 4) if personalization_scores else None,
+            "avg_applicability": round(sum(applicability_scores) / len(applicability_scores), 4) if applicability_scores else None,
+            "avg_vividness": round(sum(vividness_scores) / len(vividness_scores), 4) if vividness_scores else None,
+            "avg_logical_depth": round(sum(logical_depth_scores) / len(logical_depth_scores), 4) if logical_depth_scores else None,
+            "avg_practice_quality": round(sum(pq_scores) / len(pq_scores), 4) if pq_scores else None,
         }
 
     # Print comparison
@@ -640,13 +659,11 @@ def _build_and_print_summary(
         print(f"  Total paired turns    : {stats['total_paired_turns']}")
         faith = stats["avg_faithfulness"]
         print(f"  Avg faithfulness (1-5): {faith if faith is not None else 'N/A'}")
-        res = stats["avg_resolved_gaps_per_session"]
-        tot = stats["avg_total_gaps_per_session"]
-        print(
-            f"  Avg gap resolution    : "
-            f"{res if res is not None else 'N/A'} / "
-            f"{tot if tot is not None else 'N/A'}"
-        )
+        print(f"  Avg personalization   : {stats['avg_personalization'] if stats['avg_personalization'] is not None else 'N/A'}")
+        print(f"  Avg applicability     : {stats['avg_applicability'] if stats['avg_applicability'] is not None else 'N/A'}")
+        print(f"  Avg vividness         : {stats['avg_vividness'] if stats['avg_vividness'] is not None else 'N/A'}")
+        print(f"  Avg logical depth     : {stats['avg_logical_depth'] if stats['avg_logical_depth'] is not None else 'N/A'}")
+        print(f"  Avg practice quality  : {stats['avg_practice_quality'] if stats['avg_practice_quality'] is not None else 'N/A'}")
 
     print("\n" + "=" * 70)
 

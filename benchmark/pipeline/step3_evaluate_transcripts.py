@@ -87,7 +87,6 @@ def _extract_eval_summary(eval_data: dict) -> dict:
     agg = eval_data.get("aggregate", {})
     summary = {
         "turn_count": agg.get("turn_count", {}),
-        "gap_tracking": agg.get("gap_tracking", {}),
         "source_faithfulness": agg.get("source_faithfulness", {}),
         "teaching_quality": agg.get("teaching_quality", {}),
     }
@@ -98,7 +97,7 @@ def _extract_eval_summary(eval_data: dict) -> dict:
 
 
 def _safe_avg(vals: list[float]) -> float | None:
-    return round(sum(vals) / len(vals), 2) if vals else None
+    return round(sum(vals) / len(vals), 4) if vals else None
 
 
 def _build_aggregate_summary(results: list[dict], output_root: Path) -> dict:
@@ -112,17 +111,18 @@ def _build_aggregate_summary(results: list[dict], output_root: Path) -> dict:
             {
                 "num_profiles": 0,
                 "paired_turns_total": 0,
-                "total_resolved": 0,
-                "total_gaps": 0,
+                "tutor_turns_total": 0,
                 "faithfulness_scores": [],
-                "insightfulness_scores": [],
+                "personalization_scores": [],
                 "applicability_scores": [],
+                "vividness_scores": [],
+                "logical_depth_scores": [],
                 "pq_total_questions": 0,
-                "pq_gap_coverage": [],
-                "pq_difficulty_abs": [],
+                "pq_fitness": [],
                 "pq_groundedness": [],
-                "pq_distractor_quality": [],
                 "pq_diversity": [],
+                "pq_answer_quality": [],
+                "pq_cross_concept": [],
             },
         )
         try:
@@ -136,28 +136,34 @@ def _build_aggregate_summary(results: list[dict], output_root: Path) -> dict:
         g["paired_turns_total"] += (
             s.get("turn_count", {}).get("paired_turns_total", 0)
         )
-        gt = s.get("gap_tracking", {})
-        g["total_resolved"] += gt.get("total_resolved", 0)
-        g["total_gaps"] += gt.get("total_gaps", 0)
+        g["tutor_turns_total"] += (
+            s.get("turn_count", {}).get("tutor_turns_total", 0)
+        )
         faith = s.get("source_faithfulness", {}).get("avg_score_overall")
         if isinstance(faith, (int, float)):
             g["faithfulness_scores"].append(float(faith))
-        insight = s.get("teaching_quality", {}).get("avg_insightfulness_overall")
-        if isinstance(insight, (int, float)):
-            g["insightfulness_scores"].append(float(insight))
+        personalization = s.get("teaching_quality", {}).get("avg_personalization_overall")
+        if isinstance(personalization, (int, float)):
+            g["personalization_scores"].append(float(personalization))
         app = s.get("teaching_quality", {}).get("avg_applicability_overall")
         if isinstance(app, (int, float)):
             g["applicability_scores"].append(float(app))
+        vividness = s.get("teaching_quality", {}).get("avg_vividness_overall")
+        if isinstance(vividness, (int, float)):
+            g["vividness_scores"].append(float(vividness))
+        logical_depth = s.get("teaching_quality", {}).get("avg_logical_depth_overall")
+        if isinstance(logical_depth, (int, float)):
+            g["logical_depth_scores"].append(float(logical_depth))
 
         pq = s.get("practice_questions", {})
         if pq:
             g["pq_total_questions"] += pq.get("total_questions_across_sessions", 0)
             for key, lst_key in [
-                ("avg_gap_coverage", "pq_gap_coverage"),
-                ("avg_difficulty_abs", "pq_difficulty_abs"),
+                ("avg_fitness", "pq_fitness"),
                 ("avg_groundedness", "pq_groundedness"),
-                ("avg_distractor_quality", "pq_distractor_quality"),
                 ("avg_diversity", "pq_diversity"),
+                ("avg_answer_quality", "pq_answer_quality"),
+                ("avg_cross_concept", "pq_cross_concept"),
             ]:
                 v = pq.get(key)
                 if isinstance(v, (int, float)):
@@ -165,28 +171,26 @@ def _build_aggregate_summary(results: list[dict], output_root: Path) -> dict:
 
     out: dict[str, dict] = {}
     for backend, s in grouped.items():
-        total_res = s["total_resolved"]
-        total_gap = s["total_gaps"]
-        turns = s["paired_turns_total"]
+        paired_turns = s["paired_turns_total"]
+        tutor_turns = s["tutor_turns_total"]
         backend_summary: dict[str, Any] = {
             "num_profiles": s["num_profiles"],
-            "paired_turns_total": turns,
-            "total_resolved_gaps": total_res,
-            "total_gaps": total_gap,
-            "gap_resolution_rate": round(total_res / total_gap, 3) if total_gap else None,
-            "gap_resolution_efficiency": round(total_res / turns, 3) if turns else None,
+            "paired_turns_total": paired_turns,
+            "tutor_turns_total": tutor_turns,
             "avg_faithfulness": _safe_avg(s["faithfulness_scores"]),
-            "avg_insightfulness": _safe_avg(s["insightfulness_scores"]),
+            "avg_personalization": _safe_avg(s["personalization_scores"]),
             "avg_applicability": _safe_avg(s["applicability_scores"]),
+            "avg_vividness": _safe_avg(s["vividness_scores"]),
+            "avg_logical_depth": _safe_avg(s["logical_depth_scores"]),
         }
         if s["pq_total_questions"] > 0:
             backend_summary["practice_questions"] = {
                 "total_questions": s["pq_total_questions"],
-                "avg_gap_coverage": _safe_avg(s["pq_gap_coverage"]),
-                "avg_difficulty_abs": _safe_avg(s["pq_difficulty_abs"]),
+                "avg_fitness": _safe_avg(s["pq_fitness"]),
                 "avg_groundedness": _safe_avg(s["pq_groundedness"]),
-                "avg_distractor_quality": _safe_avg(s["pq_distractor_quality"]),
                 "avg_diversity": _safe_avg(s["pq_diversity"]),
+                "avg_answer_quality": _safe_avg(s["pq_answer_quality"]),
+                "avg_cross_concept": _safe_avg(s["pq_cross_concept"]),
             }
         out[backend] = backend_summary
     return {

@@ -2,10 +2,10 @@
 """
 CLI for benchmark evaluation.
 
-Current evaluator uses 3 independent metrics:
-1) gap_tracking (LLM, per turn)
-2) source_faithfulness (LLM, per turn, 1-5)
-3) turn_count (non-LLM)
+Current evaluator uses independent metrics:
+1) source_faithfulness (LLM, per turn, 1-5)
+2) teaching_quality (LLM, per turn, 1-5 on four dimensions)
+3) turn_count (non-LLM, raw iter source)
 """
 
 import argparse
@@ -55,7 +55,7 @@ async def main() -> None:
     parser.add_argument(
         "--dialog-only",
         action="store_true",
-        help="Skip per-turn LLM metrics (gap_tracking/source_faithfulness), keep turn_count only",
+        help="Skip per-turn LLM metrics (faithfulness/teaching_quality), keep turn_count only",
     )
     parser.add_argument(
         "--output",
@@ -127,14 +127,14 @@ async def main() -> None:
                 print(f"Profile: {result.get('profile_id', '?')} ({result.get('num_sessions', 0)} sessions)")
                 for i, s in enumerate(result.get("sessions", []), 1):
                     metrics = s.get("metrics", {})
-                    gap = metrics.get("gap_tracking", {})
                     faith = metrics.get("source_faithfulness", {})
+                    tq = metrics.get("teaching_quality", {})
                     turns = metrics.get("turn_count", {})
                     print(
                         f"  Session {i} ({s.get('entry_id', '?')}): "
                         f"paired_turns={turns.get('paired_turns', 0)}, "
-                        f"resolved={gap.get('resolved_gaps_final_count', 0)}/{gap.get('total_gaps', 0)}, "
-                        f"faith_avg={faith.get('avg_score', 'N/A')}"
+                        f"faith_avg={faith.get('avg_score', 'N/A')}, "
+                        f"personalization_avg={tq.get('personalization', {}).get('avg', 'N/A')}"
                     )
                 agg = result.get("aggregate", {})
                 agg_turn = agg.get("turn_count", {})
@@ -144,21 +144,23 @@ async def main() -> None:
             else:
                 print(f"Entry: {result.get('entry_id', '?')}")
                 metrics = result.get("metrics", {})
-                gap = metrics.get("gap_tracking", {})
                 faith = metrics.get("source_faithfulness", {})
+                tq = metrics.get("teaching_quality", {})
                 turns = metrics.get("turn_count", {})
                 print(f"Paired turns: {turns.get('paired_turns', 0)}")
-                print(
-                    "Gap resolution: "
-                    f"{gap.get('resolved_gaps_final_count', 0)}/{gap.get('total_gaps', 0)} "
-                    f"(mentioned={len(gap.get('mentioned_gap_ids_final', []))})"
-                )
                 print(
                     "Source faithfulness (1-5): "
                     f"avg={faith.get('avg_score', 'N/A')}, "
                     f"min={faith.get('min_score', 'N/A')}, "
                     f"max={faith.get('max_score', 'N/A')}, "
                     f"scored_turns={faith.get('num_scored_turns', 0)}"
+                )
+                print(
+                    "Teaching quality (1-5): "
+                    f"personalization={tq.get('personalization', {}).get('avg', 'N/A')}, "
+                    f"applicability={tq.get('applicability', {}).get('avg', 'N/A')}, "
+                    f"vividness={tq.get('vividness', {}).get('avg', 'N/A')}, "
+                    f"logical_depth={tq.get('logical_depth', {}).get('avg', 'N/A')}"
                 )
         except Exception as e:
             logger.exception("Failed to evaluate %s", path)

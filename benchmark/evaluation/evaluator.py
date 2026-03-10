@@ -3,18 +3,18 @@
 Benchmark Evaluator - Independent metric evaluation (no weighted merge)
 
 Metrics (turn-level):
-1) Gap tracking (LLM, per tutor turn): mentioned vs newly resolved gaps
-2) Source faithfulness (LLM, per tutor turn): 1-5 score against source text
-3) Teaching quality (LLM, per tutor turn): insightfulness + applicability (1-5)
-4) Turn count (non-LLM): student/tutor interaction counts
+1) Source faithfulness (LLM, per tutor turn): 1-5 score against source text
+2) Teaching quality (LLM, per tutor turn): personalization + applicability +
+   vividness + logical_depth (all 1-5)
+3) Turn count (non-LLM): student/tutor interaction counts (iter uses raw data)
 
 Metrics (practice questions, session-level):
-5) Practice question evaluation (LLM):
-   - gap_coverage (set-level, 1-5)
-   - difficulty_fit_delta (per-question, -5 to +5)
-   - groundedness (per-question, 1-5)
-   - diversity (set-level, 1-5)
-   - distractor_quality (per-question, 1-5)
+4) Practice question evaluation (LLM, per-question):
+   - fitness (1-5)
+   - groundedness (1-5)
+   - diversity (1-5)
+   - answer_quality (1-5)
+   - cross_concept (1-5)
 
 Supports:
 - Single-session transcript: {"transcript": [...], "entry": {...}}
@@ -358,7 +358,7 @@ def _build_source_faithfulness_summary(per_turn: list[dict]) -> dict:
         "num_scored_turns": len(scored),
         "max_score": max(scored),
         "min_score": min(scored),
-        "avg_score": round(sum(scored) / len(scored), 2),
+        "avg_score": round(sum(scored) / len(scored), 4),
         "per_turn": per_turn,
     }
 
@@ -372,9 +372,11 @@ async def evaluate_teaching_quality_turn(
     temperature: float,
 ) -> dict:
     """
-    Metric-3 (LLM): turn-level teaching quality on two dimensions:
-      - insightfulness (1-5)
-      - applicability (1-5)
+    Turn-level teaching quality on four dimensions (all 1-5):
+      - personalization
+      - applicability
+      - vividness
+      - logical_depth
     """
     prompt_cfg = load_prompt("eval_teaching_quality_turn")
     user_prompt = prompt_cfg["user_template"].format(
@@ -395,69 +397,83 @@ async def evaluate_teaching_quality_turn(
         logger.warning("Teaching quality failed at turn %d: %s", turn_index, e)
         return {
             "turn_index": turn_index,
-            "insightfulness_score": None,
+            "personalization_score": None,
             "applicability_score": None,
+            "vividness_score": None,
+            "logical_depth_score": None,
             "rationale": f"Evaluation failed: {e}",
             "not_applicable": True,
             "error": str(e),
         }
 
-    insight = result.get("insightfulness_score")
+    personalization = result.get("personalization_score")
     applicability = result.get("applicability_score")
-    try:
-        insight = int(insight) if insight is not None else None
-    except (TypeError, ValueError):
-        insight = None
-    try:
-        applicability = int(applicability) if applicability is not None else None
-    except (TypeError, ValueError):
-        applicability = None
+    vividness = result.get("vividness_score")
+    logical_depth = result.get("logical_depth_score")
 
-    if insight is not None:
-        insight = max(1, min(5, insight))
-    if applicability is not None:
-        applicability = max(1, min(5, applicability))
+    def _parse_1_to_5(v):
+        try:
+            iv = int(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+        return max(1, min(5, iv)) if iv is not None else None
+
+    personalization = _parse_1_to_5(personalization)
+    applicability = _parse_1_to_5(applicability)
+    vividness = _parse_1_to_5(vividness)
+    logical_depth = _parse_1_to_5(logical_depth)
+
+    not_applicable = (
+        personalization is None
+        and applicability is None
+        and vividness is None
+        and logical_depth is None
+    )
 
     return {
         "turn_index": turn_index,
-        "insightfulness_score": insight,
+        "personalization_score": personalization,
         "applicability_score": applicability,
+        "vividness_score": vividness,
+        "logical_depth_score": logical_depth,
         "rationale": result.get("rationale", ""),
         "evidence": result.get("evidence", []),
-        "not_applicable": insight is None and applicability is None,
+        "not_applicable": not_applicable,
     }
 
 
 def _build_teaching_quality_summary(per_turn: list[dict]) -> dict:
-    """Aggregate metric-3 stats over scored turns only."""
-    insight_scores = [
-        t.get("insightfulness_score")
-        for t in per_turn
-        if t.get("insightfulness_score") is not None and not t.get("not_applicable")
+    """Aggregate turn-level teaching quality stats over scored turns only."""
+    metric_keys = [
+        "personalization_score",
+        "applicability_score",
+        "vividness_score",
+        "logical_depth_score",
     ]
-    applicability_scores = [
-        t.get("applicability_score")
-        for t in per_turn
-        if t.get("applicability_score") is not None and not t.get("not_applicable")
-    ]
+    values_by_metric: dict[str, list[float]] = {k: [] for k in metric_keys}
+
+    for t in per_turn:
+        if t.get("not_applicable"):
+            continue
+        for k in metric_keys:
+            v = t.get(k)
+            if v is not None:
+                values_by_metric[k].append(float(v))
+
+    def _pack(values: list[float]) -> dict:
+        return {
+            "num_scored_turns": len(values),
+            "avg": round(sum(values) / len(values), 4) if values else None,
+            "max": max(values) if values else None,
+            "min": min(values) if values else None,
+        }
+
     return {
         "scale": "1-5",
-        "num_scored_turns_insightfulness": len(insight_scores),
-        "num_scored_turns_applicability": len(applicability_scores),
-        "avg_insightfulness": (
-            round(sum(insight_scores) / len(insight_scores), 2)
-            if insight_scores
-            else None
-        ),
-        "avg_applicability": (
-            round(sum(applicability_scores) / len(applicability_scores), 2)
-            if applicability_scores
-            else None
-        ),
-        "max_insightfulness": max(insight_scores) if insight_scores else None,
-        "min_insightfulness": min(insight_scores) if insight_scores else None,
-        "max_applicability": max(applicability_scores) if applicability_scores else None,
-        "min_applicability": min(applicability_scores) if applicability_scores else None,
+        "personalization": _pack(values_by_metric["personalization_score"]),
+        "applicability": _pack(values_by_metric["applicability_score"]),
+        "vividness": _pack(values_by_metric["vividness_score"]),
+        "logical_depth": _pack(values_by_metric["logical_depth_score"]),
         "per_turn": per_turn,
     }
 
@@ -467,7 +483,7 @@ def _build_teaching_quality_summary(per_turn: list[dict]) -> dict:
 # ======================================================================
 
 def _format_gaps_with_source_for_pq(gaps: list[dict], source_content: dict | None) -> str:
-    """Format gaps + their source pages for practice question groundedness evaluation."""
+    """Format gaps + their source pages for practice question grounding-related metrics."""
     src_by_page = _normalize_source_by_page(source_content)
     lines = []
     for g in gaps:
@@ -499,47 +515,6 @@ def _clamp_score(raw, lo: int = 1, hi: int = 5) -> int | None:
     return max(lo, min(hi, v))
 
 
-async def _eval_pq_gap_coverage(
-    questions_block: str,
-    gaps: list[dict],
-    temperature: float,
-) -> dict:
-    """Set-level: how well the full question set covers each gap (1-5)."""
-    from src.services.llm import factory
-
-    gap_view = [
-        {"gap_id": g.get("gap_id", ""), "type": g.get("type", ""),
-         "target_concept": g.get("target_concept", ""), "description": g.get("description", "")}
-        for g in gaps
-    ]
-    prompt = (
-        "Evaluate the following PRACTICE QUESTION SET as a whole.\n\n"
-        f"Question set:\n{questions_block}\n\n"
-        f"Knowledge gaps:\n{json.dumps(gap_view, ensure_ascii=False, indent=2)}\n\n"
-        "Return strict JSON only:\n"
-        '{"gap_scores": {"gap_id": 1-5, "...": 1-5}, "rationale": "short reason"}\n\n'
-        "Scoring guide:\n"
-        "- For EACH gap, score how well the FULL question set covers that gap.\n"
-        "- 1 means almost no coverage; 5 means strong and explicit coverage.\n"
-    )
-    try:
-        raw = await factory.complete(prompt=prompt,
-            system_prompt="You are a strict education evaluator. Output valid JSON only, no markdown.",
-            temperature=temperature, max_tokens=1000)
-        parsed = extract_json(raw)
-    except Exception as e:
-        logger.warning("Practice gap-coverage eval failed: %s", e)
-        parsed = {"gap_scores": {g.get("gap_id", f"gap_{i}"): 1 for i, g in enumerate(gaps)},
-                  "rationale": f"fallback: {e}"}
-
-    scores: dict[str, int] = {}
-    for g in gap_view:
-        gid = g.get("gap_id", "")
-        scores[gid] = _clamp_score((parsed.get("gap_scores") or {}).get(gid, 1)) or 1
-    avg = round(sum(scores.values()) / len(scores), 2) if scores else None
-    return {"gap_scores": scores, "avg": avg, "rationale": parsed.get("rationale", "")}
-
-
 async def _eval_pq_per_question(
     questions: list[str],
     gaps: list[dict],
@@ -547,7 +522,7 @@ async def _eval_pq_per_question(
     profile: dict,
     temperature: float,
 ) -> list[dict]:
-    """Per-question: difficulty_fit_delta, groundedness, distractor_quality."""
+    """Per-question: fitness, groundedness, diversity, answer_quality, cross_concept."""
     from src.services.llm import factory
 
     gap_source_block = _format_gaps_with_source_for_pq(gaps, source_content)
@@ -560,20 +535,22 @@ async def _eval_pq_per_question(
     results = []
     for i, q in enumerate(questions, start=1):
         prompt = (
-            f"Evaluate this multiple-choice practice question (Q{i}) on three dimensions.\n\n"
+            f"Evaluate this multiple-choice practice question (Q{i}) on five dimensions.\n\n"
             f"Question:\n{q}\n\n"
             f"Student profile:\n{profile_view}\n\n"
             f"Knowledge gaps and source content:\n{gap_source_block}\n\n"
             "Return strict JSON only:\n"
             "{\n"
-            '  "difficulty_fit_delta": -5_to_5,\n'
+            '  "fitness": 1-5,\n'
             '  "groundedness": 1-5,\n'
-            '  "distractor_quality": 1-5,\n'
+            '  "diversity": 1-5,\n'
+            '  "answer_quality": 1-5,\n'
+            '  "cross_concept": 1-5,\n'
             '  "rationale": "short reason"\n'
             "}\n\n"
             "Scoring guide:\n"
-            "- difficulty_fit_delta: -5 = much too easy for this student, "
-            "+5 = much too hard, 0 = ideal fit.\n"
+            "- fitness (1-5): Match to student profile + target gaps + suitable "
+            "difficulty level.\n"
             "- groundedness (1-5): Are the question's claims, terminology, and "
             "correct answer consistent with the source content? "
             "Check THREE aspects:\n"
@@ -599,10 +576,13 @@ async def _eval_pq_per_question(
             "definitions, or no evidence of consulting the source; "
             "1 = core claims are wrong or hallucinated, or terminology directly "
             "conflicts with the source's definitions.\n"
-            "- distractor_quality (1-5): Quality of wrong answer options. "
-            "5 = distractors target common misconceptions, are plausible but clearly wrong; "
-            "1 = distractors are obviously absurd or trivially eliminable. "
-            "If the question has no options/distractors, score 1.\n"
+            "- diversity (1-5): For this question itself, does it present a distinct "
+            "angle/format/cognitive action compared with typical rote items?\n"
+            "- answer_quality (1-5): Evaluate reference answer correctness + clarity. "
+            "Also check answer-option consistency (correct option unambiguous; explanation "
+            "matches selected answer; options are coherent).\n"
+            "- cross_concept (1-5): Degree to which this question meaningfully connects "
+            "multiple concepts instead of testing one isolated fact.\n"
         )
         try:
             raw = await factory.complete(prompt=prompt,
@@ -611,51 +591,20 @@ async def _eval_pq_per_question(
             parsed = extract_json(raw)
         except Exception as e:
             logger.warning("Practice Q%d per-question eval failed: %s", i, e)
-            parsed = {"difficulty_fit_delta": 0, "groundedness": 1, "distractor_quality": 1,
+            parsed = {"fitness": 1, "groundedness": 1, "diversity": 1, "answer_quality": 1, "cross_concept": 1,
                       "rationale": f"fallback: {e}"}
 
-        diff_delta = _clamp_score(parsed.get("difficulty_fit_delta"), -5, 5) or 0
         results.append({
             "question_index": i,
             "question_preview": q[:200],
-            "difficulty_fit_delta": diff_delta,
-            "difficulty_abs": abs(diff_delta),
+            "fitness": _clamp_score(parsed.get("fitness")) or 1,
             "groundedness": _clamp_score(parsed.get("groundedness")) or 1,
-            "distractor_quality": _clamp_score(parsed.get("distractor_quality")) or 1,
+            "diversity": _clamp_score(parsed.get("diversity")) or 1,
+            "answer_quality": _clamp_score(parsed.get("answer_quality")) or 1,
+            "cross_concept": _clamp_score(parsed.get("cross_concept")) or 1,
             "rationale": parsed.get("rationale", ""),
         })
     return results
-
-
-async def _eval_pq_diversity(questions_block: str, temperature: float) -> dict:
-    """Set-level: diversity among questions (1-5)."""
-    from src.services.llm import factory
-
-    prompt = (
-        "Evaluate the DIVERSITY of the following practice question set.\n\n"
-        f"Question set:\n{questions_block}\n\n"
-        "Return strict JSON only:\n"
-        '{"diversity_score": 1-5, "rationale": "short reason"}\n\n'
-        "Scoring guide:\n"
-        "- 5 = questions cover different knowledge points, cognitive levels "
-        "(recall, understanding, application, analysis), and problem setups. "
-        "No redundancy.\n"
-        "- 1 = questions are near-duplicates or all test the same narrow concept "
-        "at the same level.\n"
-    )
-    try:
-        raw = await factory.complete(prompt=prompt,
-            system_prompt="You are a strict education evaluator. Output valid JSON only.",
-            temperature=temperature, max_tokens=500)
-        parsed = extract_json(raw)
-    except Exception as e:
-        logger.warning("Practice diversity eval failed: %s", e)
-        parsed = {"diversity_score": 1, "rationale": f"fallback: {e}"}
-
-    return {
-        "diversity_score": _clamp_score(parsed.get("diversity_score")) or 1,
-        "rationale": parsed.get("rationale", ""),
-    }
 
 
 async def evaluate_practice_questions(
@@ -664,51 +613,41 @@ async def evaluate_practice_questions(
     entry: dict,
     temperature: float,
 ) -> dict:
-    """Full practice question evaluation with 5 metrics.
-
-    Returns dict with keys: per_question, gap_coverage, diversity, summary.
-    """
+    """Full practice-question evaluation with five per-question 1-5 metrics."""
     if not practice_questions:
         return {
             "per_question": [],
-            "gap_coverage": None,
-            "diversity": None,
             "summary": {
                 "num_questions": 0,
-                "avg_gap_coverage": None,
-                "avg_difficulty_abs": None,
+                "avg_fitness": None,
                 "avg_groundedness": None,
-                "avg_distractor_quality": None,
-                "diversity_score": None,
+                "avg_diversity": None,
+                "avg_answer_quality": None,
+                "avg_cross_concept": None,
             },
         }
 
     gaps = entry.get("gaps", [])
     profile = entry.get("profile", {})
     source_content = entry.get("source_content")
-
-    questions_block = "\n\n".join(f"Q{i}. {q}" for i, q in enumerate(practice_questions, 1))
-
-    coverage_result = await _eval_pq_gap_coverage(questions_block, gaps, temperature)
     per_question = await _eval_pq_per_question(
         practice_questions, gaps, source_content, profile, temperature)
-    diversity_result = await _eval_pq_diversity(questions_block, temperature)
 
-    diff_abs = [pq["difficulty_abs"] for pq in per_question]
+    fitness_scores = [pq["fitness"] for pq in per_question]
     ground_scores = [pq["groundedness"] for pq in per_question]
-    distractor_scores = [pq["distractor_quality"] for pq in per_question]
+    diversity_scores = [pq["diversity"] for pq in per_question]
+    answer_quality_scores = [pq["answer_quality"] for pq in per_question]
+    cross_concept_scores = [pq["cross_concept"] for pq in per_question]
 
     return {
         "per_question": per_question,
-        "gap_coverage": coverage_result,
-        "diversity": diversity_result,
         "summary": {
             "num_questions": len(per_question),
-            "avg_gap_coverage": coverage_result.get("avg"),
-            "avg_difficulty_abs": round(sum(diff_abs) / len(diff_abs), 2) if diff_abs else None,
-            "avg_groundedness": round(sum(ground_scores) / len(ground_scores), 2) if ground_scores else None,
-            "avg_distractor_quality": round(sum(distractor_scores) / len(distractor_scores), 2) if distractor_scores else None,
-            "diversity_score": diversity_result.get("diversity_score"),
+            "avg_fitness": round(sum(fitness_scores) / len(fitness_scores), 4) if fitness_scores else None,
+            "avg_groundedness": round(sum(ground_scores) / len(ground_scores), 4) if ground_scores else None,
+            "avg_diversity": round(sum(diversity_scores) / len(diversity_scores), 4) if diversity_scores else None,
+            "avg_answer_quality": round(sum(answer_quality_scores) / len(answer_quality_scores), 4) if answer_quality_scores else None,
+            "avg_cross_concept": round(sum(cross_concept_scores) / len(cross_concept_scores), 4) if cross_concept_scores else None,
         },
     }
 
@@ -755,7 +694,7 @@ async def _evaluate_single_session(
         logger.info("Excluding last turn (practice questions) from turn-level evaluation")
 
     logger.info(
-        "Metrics: gap_tracking, faithfulness%s, teaching_quality, turn_count | practice_questions=%s",
+        "Metrics: faithfulness%s, teaching_quality, turn_count | practice_questions=%s",
         " [source present]" if source_content else "",
         f"{len(practice_questions)} Qs" if has_pq else "none",
     )
@@ -768,11 +707,9 @@ async def _evaluate_single_session(
         "paired_turns": len(eval_turns),
     }
 
-    gap_tracking_per_turn: list[dict] = []
     source_faithfulness_per_turn: list[dict] = []
     teaching_quality_per_turn: list[dict] = []
-    mentioned_so_far: set[str] = set()
-    resolved_so_far: set[str] = set()
+    all_gap_ids = sorted(gap_by_id.keys())
 
     if not skip_turns:
         for t in eval_turns:
@@ -781,34 +718,12 @@ async def _evaluate_single_session(
             tutor_response = t["tutor_response"]
             recent_context = _get_recent_context(dialog_msgs, t["student_msg_index"])
 
-            gap_turn = await evaluate_gap_tracking_turn(
-                entry=entry,
-                turn_index=turn_index,
-                student_message=student_message,
-                tutor_response=tutor_response,
-                recent_context=recent_context,
-                previously_mentioned_gap_ids=sorted(mentioned_so_far),
-                previously_resolved_gap_ids=sorted(resolved_so_far),
-                temperature=temperature,
-            )
-            mentioned_turn = set(gap_turn.get("mentioned_gap_ids", []))
-            resolved_turn_new = set(gap_turn.get("resolved_gap_ids_new", []))
-
-            mentioned_so_far |= mentioned_turn
-            resolved_so_far |= resolved_turn_new
-
-            gap_turn["resolved_gap_ids_total"] = sorted(resolved_so_far)
-            gap_turn["mentioned_count_turn"] = len(mentioned_turn)
-            gap_turn["resolved_count_turn_new"] = len(resolved_turn_new)
-            gap_turn["resolved_count_total"] = len(resolved_so_far)
-            gap_tracking_per_turn.append(gap_turn)
-
             faith_turn = await evaluate_source_faithfulness_turn(
                 turn_index=turn_index,
                 student_message=student_message,
                 tutor_response=tutor_response,
                 recent_context=recent_context,
-                mentioned_gap_ids=sorted(mentioned_turn),
+                mentioned_gap_ids=all_gap_ids,
                 gap_by_id=gap_by_id,
                 source_content=source_content,
                 temperature=temperature,
@@ -825,20 +740,15 @@ async def _evaluate_single_session(
             teaching_quality_per_turn.append(quality_turn)
 
             logger.info(
-                "Turn %d: mentioned=%d, resolved_new=%d, resolved_total=%d, faith=%s, insight=%s, applic=%s",
-                turn_index, len(mentioned_turn), len(resolved_turn_new), len(resolved_so_far),
+                "Turn %d: faith=%s, personalization=%s, applicability=%s, vividness=%s, logical_depth=%s",
+                turn_index,
                 faith_turn.get("faithfulness_score", "N/A"),
-                quality_turn.get("insightfulness_score", "N/A"),
+                quality_turn.get("personalization_score", "N/A"),
                 quality_turn.get("applicability_score", "N/A"),
+                quality_turn.get("vividness_score", "N/A"),
+                quality_turn.get("logical_depth_score", "N/A"),
             )
 
-    gap_tracking_metric = {
-        "total_gaps": len(gap_by_id),
-        "mentioned_gap_ids_final": sorted(mentioned_so_far),
-        "resolved_gap_ids_final": sorted(resolved_so_far),
-        "resolved_gaps_final_count": len(resolved_so_far),
-        "per_turn": gap_tracking_per_turn,
-    }
     source_faithfulness_metric = _build_source_faithfulness_summary(source_faithfulness_per_turn)
     teaching_quality_metric = _build_teaching_quality_summary(teaching_quality_per_turn)
 
@@ -846,7 +756,6 @@ async def _evaluate_single_session(
         "entry_id": entry_id,
         "actual_turns": len(eval_turns),
         "metrics": {
-            "gap_tracking": gap_tracking_metric,
             "source_faithfulness": source_faithfulness_metric,
             "teaching_quality": teaching_quality_metric,
             "turn_count": turn_count_metric,
@@ -863,10 +772,12 @@ async def _evaluate_single_session(
         result["metrics"]["practice_questions"] = pq_eval
         s = pq_eval.get("summary", {})
         logger.info(
-            "Practice Q: gap_cov=%.2f ground=%.2f distractor=%.2f diversity=%s diff_abs=%.2f",
-            s.get("avg_gap_coverage") or 0, s.get("avg_groundedness") or 0,
-            s.get("avg_distractor_quality") or 0, s.get("diversity_score", "N/A"),
-            s.get("avg_difficulty_abs") or 0,
+            "Practice Q: fitness=%.4f groundedness=%.4f diversity=%.4f answer_quality=%.4f cross_concept=%.4f",
+            s.get("avg_fitness") or 0,
+            s.get("avg_groundedness") or 0,
+            s.get("avg_diversity") or 0,
+            s.get("avg_answer_quality") or 0,
+            s.get("avg_cross_concept") or 0,
         )
     elif has_pq and skip_turns:
         result["metrics"]["practice_questions"] = {
@@ -878,7 +789,7 @@ async def _evaluate_single_session(
 
 
 def _safe_avg(vals: list[float]) -> float | None:
-    return round(sum(vals) / len(vals), 2) if vals else None
+    return round(sum(vals) / len(vals), 4) if vals else None
 
 
 def _aggregate_multi_session(session_results: list[dict]) -> dict:
@@ -890,27 +801,23 @@ def _aggregate_multi_session(session_results: list[dict]) -> dict:
     total_tutor_turns = 0
     total_paired_turns = 0
     faith_scores: list[float] = []
-    insight_scores: list[float] = []
+    personalization_scores: list[float] = []
     applicability_scores: list[float] = []
-    resolved_counts: list[int] = []
-    total_gaps_counts: list[int] = []
+    vividness_scores: list[float] = []
+    logical_depth_scores: list[float] = []
 
     pq_total_questions = 0
-    pq_coverage: list[float] = []
-    pq_diff_abs: list[float] = []
+    pq_fitness: list[float] = []
     pq_ground: list[float] = []
-    pq_distractor: list[float] = []
     pq_diversity: list[float] = []
+    pq_answer_quality: list[float] = []
+    pq_cross_concept: list[float] = []
 
     for s in session_results:
         tc = s.get("metrics", {}).get("turn_count", {})
         total_student_turns += tc.get("student_turns", 0)
         total_tutor_turns += tc.get("tutor_turns", 0)
         total_paired_turns += tc.get("paired_turns", 0)
-
-        gt = s.get("metrics", {}).get("gap_tracking", {})
-        resolved_counts.append(gt.get("resolved_gaps_final_count", 0))
-        total_gaps_counts.append(gt.get("total_gaps", 0))
 
         sf = s.get("metrics", {}).get("source_faithfulness", {})
         for t in sf.get("per_turn", []):
@@ -920,44 +827,39 @@ def _aggregate_multi_session(session_results: list[dict]) -> dict:
 
         tq = s.get("metrics", {}).get("teaching_quality", {})
         for t in tq.get("per_turn", []):
-            ins = t.get("insightfulness_score")
+            ps = t.get("personalization_score")
             app = t.get("applicability_score")
-            if ins is not None and not t.get("not_applicable"):
-                insight_scores.append(float(ins))
+            vid = t.get("vividness_score")
+            dep = t.get("logical_depth_score")
+            if ps is not None and not t.get("not_applicable"):
+                personalization_scores.append(float(ps))
             if app is not None and not t.get("not_applicable"):
                 applicability_scores.append(float(app))
+            if vid is not None and not t.get("not_applicable"):
+                vividness_scores.append(float(vid))
+            if dep is not None and not t.get("not_applicable"):
+                logical_depth_scores.append(float(dep))
 
         pq = s.get("metrics", {}).get("practice_questions")
         if pq and pq.get("summary"):
             sm = pq["summary"]
             pq_total_questions += sm.get("num_questions", 0)
-            for key, lst in [("avg_gap_coverage", pq_coverage), ("avg_difficulty_abs", pq_diff_abs),
-                             ("avg_groundedness", pq_ground), ("avg_distractor_quality", pq_distractor),
-                             ("diversity_score", pq_diversity)]:
+            for key, lst in [
+                ("avg_fitness", pq_fitness),
+                ("avg_groundedness", pq_ground),
+                ("avg_diversity", pq_diversity),
+                ("avg_answer_quality", pq_answer_quality),
+                ("avg_cross_concept", pq_cross_concept),
+            ]:
                 v = sm.get(key)
                 if isinstance(v, (int, float)):
                     lst.append(float(v))
-
-    total_resolved = sum(resolved_counts)
-    total_gaps = sum(total_gaps_counts)
-    gap_resolution_rate = round(total_resolved / total_gaps, 3) if total_gaps else None
-    gap_efficiency = (
-        round(total_resolved / total_paired_turns, 3) if total_paired_turns else None
-    )
 
     result: dict = {
         "turn_count": {
             "student_turns_total": total_student_turns,
             "tutor_turns_total": total_tutor_turns,
             "paired_turns_total": total_paired_turns,
-        },
-        "gap_tracking": {
-            "resolved_gaps_per_session": resolved_counts,
-            "total_gaps_per_session": total_gaps_counts,
-            "total_resolved": total_resolved,
-            "total_gaps": total_gaps,
-            "gap_resolution_rate": gap_resolution_rate,
-            "gap_resolution_efficiency": gap_efficiency,
         },
         "source_faithfulness": {
             "scale": "1-5",
@@ -968,21 +870,25 @@ def _aggregate_multi_session(session_results: list[dict]) -> dict:
         },
         "teaching_quality": {
             "scale": "1-5",
-            "num_scored_turns_insightfulness_total": len(insight_scores),
+            "num_scored_turns_personalization_total": len(personalization_scores),
             "num_scored_turns_applicability_total": len(applicability_scores),
-            "avg_insightfulness_overall": _safe_avg(insight_scores),
+            "num_scored_turns_vividness_total": len(vividness_scores),
+            "num_scored_turns_logical_depth_total": len(logical_depth_scores),
+            "avg_personalization_overall": _safe_avg(personalization_scores),
             "avg_applicability_overall": _safe_avg(applicability_scores),
+            "avg_vividness_overall": _safe_avg(vividness_scores),
+            "avg_logical_depth_overall": _safe_avg(logical_depth_scores),
         },
     }
 
     if pq_total_questions > 0:
         result["practice_questions"] = {
             "total_questions_across_sessions": pq_total_questions,
-            "avg_gap_coverage": _safe_avg(pq_coverage),
-            "avg_difficulty_abs": _safe_avg(pq_diff_abs),
+            "avg_fitness": _safe_avg(pq_fitness),
             "avg_groundedness": _safe_avg(pq_ground),
-            "avg_distractor_quality": _safe_avg(pq_distractor),
             "avg_diversity": _safe_avg(pq_diversity),
+            "avg_answer_quality": _safe_avg(pq_answer_quality),
+            "avg_cross_concept": _safe_avg(pq_cross_concept),
         }
 
     return result
