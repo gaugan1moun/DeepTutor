@@ -286,6 +286,7 @@ async def deep_tutor_respond(
         enabled_tools=enabled_tools,
         enable_memory=enable_memory,
         enable_planner_retrieve=enable_rag,
+        rag_mode="naive",
     )
     answer = (result.get("answer") or "").strip()
     return answer or "(No answer generated.)"

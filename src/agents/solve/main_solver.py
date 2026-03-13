@@ -44,6 +44,7 @@ class MainSolver:
         tool_registry: ToolRegistry | None = None,
         disable_memory: bool = False,
         disable_planner_retrieve: bool = False,
+        rag_mode: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> None:
@@ -59,6 +60,7 @@ class MainSolver:
         self._external_tool_registry = tool_registry
         self.disable_memory = disable_memory
         self.disable_planner_retrieve = disable_planner_retrieve
+        self._rag_mode_override = rag_mode
         self._max_tokens_override = max_tokens
         self._temperature_override = temperature
 
@@ -600,10 +602,12 @@ class MainSolver:
     ) -> tuple[str, list[Source]]:
         from src.tools.rag_tool import rag_search
 
+        solve_cfg = self.config.get("solve", {})
+        rag_mode = self._rag_mode_override or solve_cfg.get("rag_mode", "hybrid")
         result = await rag_search(
             query=query,
             kb_name=self.kb_name,
-            mode="hybrid",
+            mode=rag_mode,
             top_k=8,
         )
         answer = result.get("answer", "") or result.get("content", "")

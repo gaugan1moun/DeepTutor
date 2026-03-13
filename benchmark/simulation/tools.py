@@ -68,6 +68,7 @@ async def solve_question(
     enabled_tools: list[str] | None = None,
     enable_memory: bool = True,
     enable_planner_retrieve: bool = True,
+    rag_mode: str = "naive",
 ) -> dict[str, Any]:
     """Solve a question with the full Plan → ReAct → Write pipeline.
 
@@ -105,6 +106,7 @@ async def solve_question(
             output_base_dir=str(session.solve_dir),
             tool_registry=tool_registry,
             disable_planner_retrieve=not enable_planner_retrieve,
+            rag_mode=rag_mode,
         )
         await solver.ainit()
         result = await solver.solve(question)
