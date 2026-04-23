@@ -69,6 +69,8 @@ Copy `.env.example` to `.env` and configure the following:
 
 For Chinese users, refer to `.env.example_CN` for region-specific settings.
 
+> **Personal note:** I've been running this with `MODEL_NAME=gpt-4o-mini` to keep API costs low for casual studying — works well for most Q&A on lecture notes and textbook chapters.
+
 ## 🏗️ Architecture
 
 ```
