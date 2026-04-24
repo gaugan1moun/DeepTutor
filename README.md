@@ -69,7 +69,7 @@ Copy `.env.example` to `.env` and configure the following:
 
 For Chinese users, refer to `.env.example_CN` for region-specific settings.
 
-> **Personal note:** I've been running this with `MODEL_NAME=gpt-4o-mini` to keep API costs low for casual studying — works well for most Q&A on lecture notes and textbook chapters.
+> **Personal note:** I've been running this with `MODEL_NAME=gpt-4o-mini` to keep API costs low for casual studying — works well for most Q&A on lecture notes and textbook chapters. I also bumped `MAX_UPLOAD_SIZE_MB` to `50` since some of my textbook PDFs are on the larger side.
 
 ## 🏗️ Architecture
 
@@ -102,5 +102,3 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 ## 🙏 Acknowledgements
 
 - Original project: [HKUDS/DeepTutor](https://github.com/HKUDS/DeepTutor)
-- Built with [LangChain](https://github.com/langchain-ai/langchain)
-- UI powered by [Gradio](https://gradio.app/) / [Streamlit](https://streamlit.io/)
