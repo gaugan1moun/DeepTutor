@@ -74,6 +74,8 @@ For Chinese users, refer to `.env.example_CN` for region-specific settings.
 > **Tip:** If you're on a slow connection, set `VECTOR_STORE_PATH` to a local SSD path rather than a network drive — ingestion time for large PDFs drops noticeably.
 >
 > **Tip:** On macOS with Apple Silicon, make sure to install `grpcio` via `pip install grpcio --no-binary grpcio` if you hit build errors during `pip install -r requirements.txt` — took me a while to track that one down.
+>
+> **Tip:** If the chat responses feel too verbose, try adding a system prompt note in the UI settings asking the model to keep answers concise — made a big difference for my quick review sessions before exams.
 
 ## 🏗️ Architecture
 
@@ -85,13 +87,5 @@ DeepTutor/
 │   ├── retrieval.py    # Vector search & retrieval
 │   └── generation.py   # LLM response generation
 ├── ui/                 # Frontend interface
-├── utils/              # Utility functions
-└── tests/              # Test suite
+├── utils/              # Utility
 ```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue first to discuss what you would like to change.
-
-1. Fork the repository
-2. Create your feature branch (
