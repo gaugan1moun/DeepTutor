@@ -76,6 +76,8 @@ For Chinese users, refer to `.env.example_CN` for region-specific settings.
 > **Tip:** On macOS with Apple Silicon, make sure to install `grpcio` via `pip install grpcio --no-binary grpcio` if you hit build errors during `pip install -r requirements.txt` — took me a while to track that one down.
 >
 > **Tip:** If the chat responses feel too verbose, try adding a system prompt note in the UI settings asking the model to keep answers concise — made a big difference for my quick review sessions before exams.
+>
+> **Tip:** On Windows, if `python app.py` exits immediately with no error, try running `python -m streamlit run app.py` directly — the entry point seems to rely on streamlit being invoked explicitly in some environments.
 
 ## 🏗️ Architecture
 
@@ -83,9 +85,5 @@ For Chinese users, refer to `.env.example_CN` for region-specific settings.
 DeepTutor/
 ├── app.py              # Main application entry point
 ├── pipeline/           # RAG pipeline components
-│   ├── ingestion.py    # Document ingestion & chunking
-│   ├── retrieval.py    # Vector search & retrieval
-│   └── generation.py   # LLM response generation
-├── ui/                 # Frontend interface
-├── utils/              # Utility
+│   ├── ingestion.py    
 ```
