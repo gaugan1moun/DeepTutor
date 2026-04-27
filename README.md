@@ -77,13 +77,6 @@ For Chinese users, refer to `.env.example_CN` for region-specific settings.
 >
 > **Tip:** If the chat responses feel too verbose, try adding a system prompt note in the UI settings asking the model to keep answers concise — made a big difference for my quick review sessions before exams.
 >
-> **Tip:** On Windows, if `python app.py` exits immediately with no error, try running `python -m streamlit run app.py` directly — the entry point seems to rely on streamlit being invoked explicitly in some environments.
-
-## 🏗️ Architecture
-
-```
-DeepTutor/
-├── app.py              # Main application entry point
-├── pipeline/           # RAG pipeline components
-│   ├── ingestion.py    
-```
+> **Tip:** On Windows, if `python app.py` exits immediately with no error, try running `python -m streamlit run app.py` directly — the entry point seems to rely on Streamlit being invoked explicitly on some Windows setups.
+>
+> **Tip:** If you're uploading scanned PDFs (not text-layer PDFs), OCR quality can vary a lot. I've had better luck pre-processing scans with [OCRmyPDF](https://github.com/ocrmypdf/OCRmyPDF) before uploading — `ocrmypdf input.pdf output.pdf` — the resulting text extraction and retrieval quality improves noticeably.
