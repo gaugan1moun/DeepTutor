@@ -77,4 +77,4 @@ For Chinese users, refer to `.env.example_CN` for region-specific settings.
 >
 > **Tip:** If the chat responses feel too verbose, try adding a system prompt note in the UI settings asking the model to keep answers concise — made a big difference for my quick review sessions before exams.
 >
-> **Tip:** On Windows, if `python app.py` exits immediately with no error, try running `python -m streamlit run app.py` directly — the entry point seems to rely on Streamlit being invoked correctly. Also worth checking that your `.env` file uses LF line endings rather than CRLF; I ran into silent config-loading failures caused by CRLF until I converted the file with `dos2unix .env`.
+> **Tip:** On Windows, if `python app.py` exits immediately with no error, try running `python -m streamlit run app.py` directly — the entry point seems to rely on Streamlit being invoked correctly. Also make sure your `.env` file uses LF line endings rather than CRLF, as some env parsers choke on Windows-style line endings (`dos2unix .env` fixes it).
