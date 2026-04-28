@@ -1,14 +1,63 @@
-# ============================================
-# DeepTutor Python Dependencies (Runtime Bundle)
-# ============================================
-# Python >= 3.11 required
-#
-# For targeted installs:
-#   pip install -r requirements/cli.txt            # CLI (full, with RAG + tools)
-#   pip install -r requirements/server.txt         # CLI + API server
-#   pip install -r requirements/math-animator.txt  # + Manim animation engine
-#   pip install -r requirements/dev.txt            # + dev/test tools
-#
-# This file installs the server runtime (CLI + API + TutorBot).
+# Core dependencies for DeepTutor
 
--r requirements/tutorbot.txt
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+
+# LLM & AI
+openai==1.35.3
+anthropologic==0.28.0
+tiktoken==0.7.0
+langchain==0.2.6
+langchain-openai==0.1.13
+langchain-community==0.2.6
+langchain-core==0.2.11
+
+# Vector store & embeddings
+faiss-cpu==1.8.0
+chromadb==0.5.3
+sentence-transformers==3.0.1
+
+# Document processing
+pypdf==4.2.0
+python-docx==1.1.2
+markdownify==0.12.1
+unstructured==0.14.9
+
+# Database
+sqlalchemy==2.0.31
+alembic==1.13.1
+psycopg2-binary==2.9.9
+redis==5.0.7
+
+# Authentication & security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.1
+
+# HTTP client
+httpx==0.27.0
+requests==2.32.3
+aiohttp==3.9.5
+
+# Data validation
+pydantic==2.7.4
+pydantic-settings==2.3.3
+
+# Utilities
+numpy==1.26.4
+pandas==2.2.2
+tqdm==4.66.4
+loguru==0.7.2
+tenacity==8.4.1
+
+# Testing
+pytest==8.2.2
+pytest-asyncio==0.23.7
+httpx==0.27.0
+
+# Development
+black==24.4.2
+isort==5.13.2
+flake8==7.1.0
